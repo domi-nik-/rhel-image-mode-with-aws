@@ -140,7 +140,9 @@ podman push quay.io/dbittl/rhel-nginx-aws:latest
 
 ```
 
-Before the next step ensure your S3 bucket exists or create one:
+Before the next step create your S3 bucket and AWS service role:
+
+Bucket creation:
 
 ```bash
 export BUCKET_NAME=$(aws s3api create-bucket \
@@ -151,6 +153,73 @@ export BUCKET_NAME=$(aws s3api create-bucket \
 
 #the variable $BUCKET_NAME will be used in the next step, to identify the newly created S3 bucket
 ```
+
+Service role and policy creation:
+
+```bash
+#trust-policy:
+aws iam create-role --role-name vmimport --region eu-central-1 --assume-role-policy-document '{
+   "Version": "2012-10-17",
+   "Statement": [
+      {
+         "Effect": "Allow",
+         "Principal": { "Service": "vmie.amazonaws.com" },
+         "Action": "sts:AssumeRole",
+         "Condition": {
+            "StringEquals":{
+               "sts:Externalid": "vmimport"
+            }
+         }
+      }
+   ]
+}'
+
+#put-role-policy
+aws iam put-role-policy --role-name vmimport --region eu-central-1 --policy-name vmimport --policy-document '{
+   "Version":"2012-10-17",
+   "Statement":[
+      {
+         "Effect": "Allow",
+         "Action": [
+            "s3:GetBucketLocation",
+            "s3:GetObject",
+            "s3:ListBucket" 
+         ],
+         "Resource": [
+            "arn:aws:s3:::rhel-nginx-aws-bucketca8c14e621804fa9a47741c442a9569e",
+            "arn:aws:s3:::rhel-nginx-aws-bucketca8c14e621804fa9a47741c442a9569e/*"
+         ]
+      },
+      {
+         "Effect": "Allow",
+         "Action": [
+            "s3:GetBucketLocation",
+            "s3:GetObject",
+            "s3:ListBucket",
+            "s3:PutObject",
+            "s3:GetBucketAcl"
+         ],
+         "Resource": [
+            "arn:aws:s3:::amzn-s3-demo-export-bucket",
+            "arn:aws:s3:::amzn-s3-demo-export-bucket/*"
+         ]
+      },
+      {
+         "Effect": "Allow",
+         "Action": [
+            "ec2:ModifySnapshotAttribute",
+            "ec2:CopySnapshot",
+            "ec2:RegisterImage",
+            "ec2:Describe*"
+         ],
+         "Resource": "*"
+      }
+   ]
+}'
+
+```
+
+
 
 
 Finally build the AMI and push it to your S3 bucket from the newly tagged and pushed quay-image with this command:
