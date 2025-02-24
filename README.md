@@ -378,7 +378,7 @@ Open your deployed website in your browser.
 
 Now let's check our created "index.php"-site via the cloud-init:
 
-![alt text](image/index-php-not-working.png)
+![alt text](images/index-php-not-working.png)
 
 
 
