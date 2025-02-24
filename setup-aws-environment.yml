@@ -46,17 +46,41 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  RouteTable:
+  RouteTableA:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
 
-  Route:
+  RouteA:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !Ref RouteTableA
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
+
+  RouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  RouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref RouteTableA
+
+  SubnetRouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref RouteTableB
 
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -99,7 +123,7 @@ Resources:
         - Id: !Ref EC2Instance1
         - Id: !Ref EC2Instance2
 
-  LoadBalancerListener:
+  LoadBalancerListenerHTTP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:

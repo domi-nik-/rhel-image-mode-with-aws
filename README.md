@@ -5,12 +5,14 @@ Prerequisites:
 * AWS Account and credentials setup (e.g. aws configure - see reference https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-welcome.html)
   * This guide will generate costs, please keep an eye on them and delete unused resources at the end! *IMPORTANT* 
 * Subscribed RHEL 9 system (Workstation/VM)
-* Image Registry like quay.io 
+* Image Registry like quay.io
+* github Account and ssh-access configured
 * Installed Dev-Tools
 * * VSCodium or similar file editor
 * * podman
 * * bootc
 * * aws-cli
+* 12 GB of free disk space
 
 I use a MacBook Pro M3 for that example hence everything build on the host and uploaded to AWS is arm64 architecture. 
 For x86_64 based systems you need to change the image type accordingly.
@@ -18,14 +20,14 @@ For x86_64 based systems you need to change the image type accordingly.
 
 ## What is the goal of the article?
 
-Running an Web-Server on a RHEL System on AWS.
+Running a Website on a RHEL Systems behind a Loadbalancer (ELB) on AWS.
 
 ## Services used:
 
 * S3 for saving the RHEL Images and create the AMI (Amazon Machine Images - see reference https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AMIs.html)  
 * AWS ELB  
 * “podman” for image creation, testing and pushing the generated AMIs  
-* “cloud-init” for deploying the AMIs
+* “cloud-init” for adjust systems during deployment of the AMIs
 
 
 ## STEP 1 "Create github repo"
@@ -46,13 +48,13 @@ Containerfile:
 FROM registry.redhat.io/rhel9/rhel-bootc:9.5
 
 #install the lamp components
-RUN dnf module enable -y nginx:1.24 && dnf install -y httpd cloud-init && dnf clean all
+RUN dnf install -y httpd cloud-init && dnf clean all
 
 #start the services automatically on boot
 RUN systemctl enable httpd
 ```
 
-As you can see the image will contain the nginx web-server and the cloud-init package which is needed to
+As you can see the image will contain the httpd web-server and the cloud-init package which is needed to
 configure the system during the deployment on AWS.
 
 ## STEP 3 "Build the RHEL Image"
@@ -82,7 +84,7 @@ podman pull registry.redhat.io/rhel9/rhel-bootc:9.5
 Now let's build the image and tag the image:
 
 ```bash
-podman build -f Containerfile -t quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-nginx-bootc:latest
+podman build -f Containerfile -t quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-bootc:latest
 ```
 In my example $YOUR_QUAY_ACCOUNT_NAME equals "dbittl".
 
@@ -92,7 +94,7 @@ In my example $YOUR_QUAY_ACCOUNT_NAME equals "dbittl".
 Run the image with podman:
 
 ```bash
-podman run -d --rm --name nginx -p 8080:80 quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-nginx-bootc:latest /sbin/init
+podman run -d --rm --name httpd -p 8080:80 quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-bootc:latest /sbin/init
 ```
 
 Access your Web-Server on http://localhost:8080 and you should see this:
@@ -103,14 +105,14 @@ Access your Web-Server on http://localhost:8080 and you should see this:
 If all worked, you can stop the running container with:
 
 ```bash
-podman stop nginx
+podman stop httpd
 ```
 
 ## STEP 5 "Push the image to the registry"
 
 ```bash
 podman login quay.io
-podman push quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-nginx-bootc:latest
+podman push quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-bootc:latest
 ```
 
 And again you should see this:
@@ -122,27 +124,39 @@ Login Succeeded!
 and this:
 
 ```bash
-
+[...]
+Coying blob sha256:a24067aedc15d2a9de9cd54e57ae310f152e00c4e7be43c32048f7592574347c
+Copying blob sha256:fd0f098a9eec98d7dd1840683453029f13aab83bf108b97ce29ee5558a0d9bd0
+Copying blob sha256:edf62f95bcb3821b71ee2895ec5ab63f27c1362dbc33422d490cb05c8c61fcab
+Copying blob sha256:12787d84fa137cd5649a9005efe98ec9d05ea46245fdc50aecb7dd007f2035b1
+Copying blob sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef
+Copying blob sha256:f2d5ce8c0e28943f56de3f4443b1c1d9ee9b8046eb15509745f0ebd80a272d23
+Copying blob sha256:a383779accb70dd616ec8ea2b8e71b1222c44290ebc357ff1317f14db06c6679
+Copying config sha256:1afc8b2eb5ec6d09213e1547f1e4a4784137783b9b7334268f6bdfa119a59d50
+Writing manifest to image destination
 ```
 
-Now please set this image to "public" on quay.io so that we can use and install it remotely via e.g. Kickstarter.
+Now please set this image to "public" on quay.io so that you could use and install it remotely via e.g. Kickstarter.
 But this is not what we want to do now, instead wo go on with building our AMI for AWS, hence you could have skipped this part
-but I wanted to show this to you as well. 
+but I wanted to show this to you as well.
 
-## STEP 6 "Build the RHEL Image as AMI and push it to AWS S3 bucket"
+![alt text](images/quay_io_make_public.png)
 
-To seperate the image name from the boot-c image we will add an additional tag to the image called "rhel-nginx-aws".
+## STEP 6 "Build the RHEL Image as AMI and push it to the AWS S3 bucket"
+
+To seperate the image name from the boot-c image we will add an additional tag to the image called "rhel-httpd-aws".
 
 ```bash
-podman tag quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-nginx-bootc:latest quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-nginx-aws:latest
+podman tag quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-bootc:latest quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-aws:latest
 ```
 
 and now push it again to your quay.io registry:
 
 ```bash
-podman push quay.io/dbittl/rhel-nginx-aws:latest
+podman push quay.io/dbittl/rhel-httpd-aws:latest
 
 ```
+And again make it public in quay.io!
 
 The following script will create the S3 Bucket, Role and Policies needed, build and push the AMI to AWS.
 You can find the scipt in the repo with the name "generate_AMI.sh".
@@ -155,9 +169,9 @@ You have to adjust the variables to match your environment e.g. the $REGISTRY_UR
 set -e  # Abort script on any error
 
 ROLE_NAME="vmimport"
-POLICY_NAME="vmimport-s3-policy"
+POLICY_NAME="vmimport"
 REGISTRY_URL="quay.io/dbittl"
-IMAGE="rhel-nginx-aws:latest"
+IMAGE="rhel-httpd-aws:latest"
 AWS_REGION="eu-central-1"
 BUCKET_PREFIX="rhel-ami-import"
 
@@ -276,7 +290,7 @@ sudo podman run --rm -it --privileged \
     --env AWS_PROFILE=default \
     registry.redhat.io/rhel9/bootc-image-builder:latest \
     --type ami \
-    --aws-ami-name rhel-nginx-aws \
+    --aws-ami-name rhel-httpd-aws \
     --aws-bucket $BUCKET_NAME \
     --aws-region $AWS_REGION \
     $REGISTRY_URL/$IMAGE
@@ -299,7 +313,7 @@ Build complete!
 Uploading image/disk.raw to rhel-ami-importc9eda16cfb6c47b6999a97743102cbed:89a83267-5178-44f6-b004-515ff5943577-disk.raw
 10.00 GiB / 10.00 GiB [--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------] 100.00% 3.71 MiB p/s
 File uploaded to https://rhel-ami-importc9eda16cfb6c47b6999a97743102cbed.s3.eu-central-1.amazonaws.com/89a83267-5178-44f6-b004-515ff5943577-disk.raw
-Registering AMI rhel-nginx-aws
+Registering AMI rhel-httpd-aws
 Deleted S3 object rhel-ami-importc9eda16cfb6c47b6999a97743102cbed:89a83267-5178-44f6-b004-515ff5943577-disk.raw
 AMI registered: ami-0d74dbf7474a1b822
 Snapshot ID: snap-01714d960cd6fde44
@@ -308,7 +322,6 @@ Snapshot ID: snap-01714d960cd6fde44
 How does it look in the AWS Webconsole?
 
 ![alt text](images/ami-published-webconsole.png)
-
 
 ## STEP 6 "Now let's create the AWS environment for us"
 
@@ -335,9 +348,9 @@ Please adjust the ImageId value according to your environment before the executi
 If you work with a x86_64 architecture, you can also change our InstanceType to e.g. "t3.micro" if you like.
 
 ```bash
-aws cloudformation create-stack --stack-name rhel-nginx-aws-stack \
+aws cloudformation create-stack --stack-name rhel-httpd-aws-stack \
   --template-body file://setup-aws-environment.yml \
-  --parameters ParameterKey=ImageId,ParameterValue=ami-0d74dbf7474a1b822 \
+  --parameters ParameterKey=ImageId,ParameterValue=ami-068c556404141fe2d \
                ParameterKey=InstanceType,ParameterValue=t4g.micro
 ```
 
@@ -345,22 +358,27 @@ aws cloudformation create-stack --stack-name rhel-nginx-aws-stack \
 You can verify the stack creation process with
 
 ```bash
-aws cloudformation describe-stacks --stack-name rhel-nginx-aws-stack
+aws cloudformation describe-stacks --stack-name rhel-httpd-aws-stack
 
 ```
 
-How does it look inthe AWS Webconsole again?
+How does it look in the AWS Webconsole again?
 
 ![alt text](images/stack-completed.png)
 
 
-Once the deployment is finished you can get the DNS-Name of your Loadbalancer via:
+Once the deployment is finished you can also get the DNS-Name of your Loadbalancer via:
 
 ```bash
-aws elbv2 describe-load-balancers --names rhel-nginx-aws-stack-ELB --query 'LoadBalancers[0].DNSName' --output text
+aws elbv2 describe-load-balancers --names rhel-httpd-aws-stack-ELB --query 'LoadBalancers[0].DNSName' --output text
 ```
 
 Open your deployed website in your browser.
+
+
+Now let's check our created "index.php"-site via the cloud-init:
+
+![alt text](image/index-php-not-working.png)
 
 
 

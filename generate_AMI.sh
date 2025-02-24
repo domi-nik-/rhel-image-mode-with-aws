@@ -3,10 +3,26 @@
 set -e  # Abort script on error
 
 ROLE_NAME="vmimport"
-POLICY_NAME="vmimport-s3-policy"
+POLICY_NAME="vmimport"
 REGISTRY_URL="quay.io/dbittl"
-IMAGE="rhel-nginx-aws:latest"
+IMAGE="rhel-httpd-aws:latest"
 AWS_REGION="eu-central-1"
+
+# Check if a bucket with the same prefix already exists
+EXISTING_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, 'rhel-httpd-aws-bucket')].Name" --output text)
+
+if [ -n "$EXISTING_BUCKET" ]; then
+    echo "Found existing bucket: $EXISTING_BUCKET"
+    export BUCKET_NAME="$EXISTING_BUCKET"
+else
+    echo "Creating a new S3 bucket..."
+    export BUCKET_NAME=$(aws s3api create-bucket \
+        --bucket rhel-httpd-aws-bucket$(uuidgen | tr -d - | tr '[:upper:]' '[:lower:]' ) \
+        --region $AWS_REGION \
+        --create-bucket-configuration LocationConstraint=$AWS_REGION \
+        --output json | jq -r '.Location' | sed -E 's|http://(.*)\.s3.amazonaws.com/|\1|')
+    echo "S3 bucket '$BUCKET_NAME' created successfully!"
+fi
 
 # Check if the role already exists
 if aws iam get-role --role-name $ROLE_NAME >/dev/null 2>&1; then
@@ -96,22 +112,6 @@ EOF
     echo "Policy '$POLICY_NAME' attached successfully!"
 fi
 
-# Check if a bucket with the same prefix already exists
-EXISTING_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, 'rhel-nginx-aws-bucket')].Name" --output text)
-
-if [ -n "$EXISTING_BUCKET" ]; then
-    echo "Found existing bucket: $EXISTING_BUCKET"
-    export BUCKET_NAME="$EXISTING_BUCKET"
-else
-    echo "Creating a new S3 bucket..."
-    export BUCKET_NAME=$(aws s3api create-bucket \
-        --bucket rhel-nginx-aws-bucket$(uuidgen | tr -d - | tr '[:upper:]' '[:lower:]' ) \
-        --region $AWS_REGION \
-        --create-bucket-configuration LocationConstraint=$AWS_REGION \
-        --output json | jq -r '.Location' | sed -E 's|http://(.*)\.s3.amazonaws.com/|\1|')
-    echo "S3 bucket '$BUCKET_NAME' created successfully!"
-fi
-
 echo "Start Podman-Container..."
 sudo podman run --rm -it --privileged \
     --pull=newer \
@@ -120,7 +120,7 @@ sudo podman run --rm -it --privileged \
     --env AWS_PROFILE=default \
     registry.redhat.io/rhel9/bootc-image-builder:latest \
     --type ami \
-    --aws-ami-name rhel-nginx-aws \
+    --aws-ami-name rhel-httpd-aws \
     --aws-bucket $BUCKET_NAME \
     --aws-region $AWS_REGION \
     $REGISTRY_URL/$IMAGE
