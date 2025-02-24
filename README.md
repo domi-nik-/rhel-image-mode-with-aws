@@ -3,13 +3,17 @@
 Prerequisites:
 
 * AWS Account and credentials setup (e.g. aws configure - see reference https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-welcome.html)
+  * This guide will generate costs, please keep an eye on them and delete unused resources at the end! *IMPORTANT* 
 * Subscribed RHEL 9 system (Workstation/VM)
-* Image Registry like quay.io  
-* (Preconfigured Github Account with ssh-key authentication)  
+* Image Registry like quay.io 
 * Installed Dev-Tools
 * * VSCodium or similar file editor
 * * podman
 * * bootc
+* * aws-cli
+
+I use a MacBook Pro M3 for that example hence everything build on the host and uploaded to AWS is arm64 architecture. 
+For x86_64 based systems you need to change the image type accordingly.
 
 
 ## What is the goal of the article?
@@ -94,7 +98,7 @@ podman run -d --rm --name nginx -p 8080:80 quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-
 Access your Web-Server on http://localhost:8080 and you should see this:
 
 
- ![alt text](images/image-1.png)
+ ![alt text](images/website-1.png)
 
 If all worked, you can stop the running container with:
 
@@ -140,25 +144,50 @@ podman push quay.io/dbittl/rhel-nginx-aws:latest
 
 ```
 
-Before the next step create your S3 bucket and AWS service role:
+The following script will create the S3 Bucket, Role and Policies needed, build and push the AMI to AWS.
+You can find the scipt in the repo with the name "generate_AMI.sh".
+You have to adjust the variables to match your environment e.g. the $REGISTRY_URL!
 
-Bucket creation:
-
-```bash
-export BUCKET_NAME=$(aws s3api create-bucket \
-    --bucket rhel-nginx-aws-bucket$(uuidgen | tr -d - | tr '[:upper:]' '[:lower:]' ) \
-    --region eu-central-1 \
-    --create-bucket-configuration LocationConstraint=eu-central-1 \
-    --output json | jq -r '.Location' | sed -E 's|http://(.*)\.s3.amazonaws.com/|\1|')
-
-#the variable $BUCKET_NAME will be used in the next step, to identify the newly created S3 bucket
-```
-
-Service role and policy creation:
 
 ```bash
-#trust-policy:
-aws iam create-role --role-name vmimport --region eu-central-1 --assume-role-policy-document '{
+#!/bin/bash
+
+set -e  # Abort script on any error
+
+ROLE_NAME="vmimport"
+POLICY_NAME="vmimport-s3-policy"
+REGISTRY_URL="quay.io/dbittl"
+IMAGE="rhel-nginx-aws:latest"
+AWS_REGION="eu-central-1"
+BUCKET_PREFIX="rhel-ami-import"
+
+# Step 1: Check if an S3 bucket with the prefix already exists
+EXISTING_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, '$BUCKET_PREFIX')].Name" --output text)
+
+if [ -n "$EXISTING_BUCKET" ]; then
+    echo "Found existing bucket: $EXISTING_BUCKET"
+    export BUCKET_NAME="$EXISTING_BUCKET"
+else
+    echo "Creating a new S3 bucket..."
+    export BUCKET_NAME="${BUCKET_PREFIX}-$(uuidgen | tr -d - | tr '[:upper:]' '[:lower:]')"
+    
+    aws s3api create-bucket \
+        --bucket "$BUCKET_NAME" \
+        --region $AWS_REGION \
+        --create-bucket-configuration LocationConstraint=$AWS_REGION
+
+    echo "S3 bucket '$BUCKET_NAME' created successfully!"
+fi
+
+# Step 2: Check if the IAM role already exists
+if aws iam get-role --role-name $ROLE_NAME >/dev/null 2>&1; then
+    echo "Role '$ROLE_NAME' already exists. Skipping creation."
+else
+    echo "Creating IAM role '$ROLE_NAME'..."
+
+    # Create Trust Policy for VM Import
+    cat > trust-policy.json <<EOF
+{
    "Version": "2012-10-17",
    "Statement": [
       {
@@ -172,10 +201,24 @@ aws iam create-role --role-name vmimport --region eu-central-1 --assume-role-pol
          }
       }
    ]
-}'
+}
+EOF
 
-#put-role-policy
-aws iam put-role-policy --role-name vmimport --region eu-central-1 --policy-name vmimport --policy-document '{
+    # Create Role
+    aws iam create-role --role-name $ROLE_NAME --assume-role-policy-document file://trust-policy.json
+    rm trust-policy.json #Cleanup
+    echo "IAM Role '$ROLE_NAME' created successfully!"
+fi
+
+# Step 3: Check if the policy is already attached
+if aws iam get-role-policy --role-name $ROLE_NAME --policy-name $POLICY_NAME >/dev/null 2>&1; then
+    echo "Policy '$POLICY_NAME' is already attached to the role '$ROLE_NAME'. Skipping policy creation."
+else
+    echo "Creating and attaching policy '$POLICY_NAME' to role '$ROLE_NAME'..."
+
+    # Create Role-Policy for S3 Access
+    cat > role-policy.json <<EOF
+{
    "Version":"2012-10-17",
    "Statement":[
       {
@@ -186,8 +229,8 @@ aws iam put-role-policy --role-name vmimport --region eu-central-1 --policy-name
             "s3:ListBucket" 
          ],
          "Resource": [
-            "arn:aws:s3:::rhel-nginx-aws-bucketca8c14e621804fa9a47741c442a9569e",
-            "arn:aws:s3:::rhel-nginx-aws-bucketca8c14e621804fa9a47741c442a9569e/*"
+            "arn:aws:s3:::$BUCKET_NAME",
+            "arn:aws:s3:::$BUCKET_NAME/*"
          ]
       },
       {
@@ -200,8 +243,8 @@ aws iam put-role-policy --role-name vmimport --region eu-central-1 --policy-name
             "s3:GetBucketAcl"
          ],
          "Resource": [
-            "arn:aws:s3:::amzn-s3-demo-export-bucket",
-            "arn:aws:s3:::amzn-s3-demo-export-bucket/*"
+            "arn:aws:s3:::$BUCKET_NAME",
+            "arn:aws:s3:::$BUCKET_NAME/*"
          ]
       },
       {
@@ -215,59 +258,112 @@ aws iam put-role-policy --role-name vmimport --region eu-central-1 --policy-name
          "Resource": "*"
       }
    ]
-}'
+}
+EOF
 
-```
+    # Attach the policy to the role
+    aws iam put-role-policy --role-name $ROLE_NAME --policy-name $POLICY_NAME --policy-document file://role-policy.json
+    rm role-policy.json #Clenaup
+    echo "Policy '$POLICY_NAME' attached successfully!"
+fi
 
-
-
-
-Finally build the AMI and push it to your S3 bucket from the newly tagged and pushed quay-image with this command:
-
-```bash
+# Step 4: Start the Podman container
+echo "Starting Podman container for AMI build and copy to S3..."
 sudo podman run --rm -it --privileged \
- --pull=newer \
- --security-opt label=type:unconfined_t \
- -v $XDG_RUNTIME_DIR/containers/auth.json:/run/containers/0/auth.json \
- -v $HOME/.aws:/root/.aws:ro \
- --env AWS_PROFILE=default \
- registry.redhat.io/rhel9/bootc-image-builder:latest \
- --type ami \
- --aws-ami-name rhel-nginx-aws \
- --aws-bucket $BUCKET_NAME \
- --aws-region eu-central-1 \
- quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-nginx-aws:latest #the newly tagged and pushed image from above
+    --pull=newer \
+    --security-opt label=type:unconfined_t \
+    -v $HOME/.aws:/root/.aws:ro \
+    --env AWS_PROFILE=default \
+    registry.redhat.io/rhel9/bootc-image-builder:latest \
+    --type ami \
+    --aws-ami-name rhel-nginx-aws \
+    --aws-bucket $BUCKET_NAME \
+    --aws-region $AWS_REGION \
+    $REGISTRY_URL/$IMAGE
 ```
 
-After the command has finished you should see something like this:
+After the script has finished you should see something like this:
 
 ```bash
 [...]
 manifest - finished successfully
 build:          29bd086ee3531b2c67d1ca22dc30c4dfe0c37d6622fdd342abb0bd80c916819b
-image:          156802a1e7f05ad5617232cbcdc84773b863c31da154eba6992e7f5956b79ce1
-qcow2:          312b492a68f05f5a325262b6ae5df4c15981fb9161c67cb7c2817941a2c90eb5
-vmdk:           d3d4dd454e2f47df96c97757ccbc893abab52d2a21c8c7f7d7b785ebfad66d20
-vpc:            f8c970ecdea42d3db2189bd71085486111dd92dc1e4f23b8f95d14787279993a
-ovf:            273d50674aa92bfdf554bbe514c1a8de5a1d4945b6133136e1a1736ae772a9aa
-archive:        b83b2e4d87c6e96066c38b5db997b4e58278748a5a4b387252e8fdc360147eb4
-gce:            83a50c057e40f6ef97ae2422cca903276f7de47e222747ffdb7818879f0438dd
+image:          8cdac98c28ec498cdea57535c31c6f170964e9ba7f42348b57b1fda37533d298
+qcow2:          8bf45f56087ccb8543a04845a7e88e8af1de24ed37361de4e614815e5bdd03bf
+vmdk:           104d54e3ba707be30865286bdb2d394f333245859fc7e2498449285fd6d1c743
+vpc:            6fb8e75d969bfdb610090f34ed461b6319971837036d13a84bfc1bfd0462ab81
+ovf:            ab64a9e4a83ee465e3d26ab25ddba0074af1127d79139e6690cdf6d3e01af1f6
+archive:        7e4d332f9b5bba051f0f5efe7ebd96bae3eeaa2fe9a0ae2e948d3cb532d632ec
+gce:            ec886a7f5be20698f5d40a2bbe323dacae502b8aef28ff0c6ea62920d948ef32
 Build complete!
-Uploading image/disk.raw to rhel-nginx-aws-bucket:7287e3e6-1bb9-4429-a298-decb98f32d43-disk.raw
-1.25 GiB / 10.00 GiB [------------------------------>_____________________________________________
+Uploading image/disk.raw to rhel-ami-importc9eda16cfb6c47b6999a97743102cbed:89a83267-5178-44f6-b004-515ff5943577-disk.raw
+10.00 GiB / 10.00 GiB [--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------] 100.00% 3.71 MiB p/s
+File uploaded to https://rhel-ami-importc9eda16cfb6c47b6999a97743102cbed.s3.eu-central-1.amazonaws.com/89a83267-5178-44f6-b004-515ff5943577-disk.raw
+Registering AMI rhel-nginx-aws
+Deleted S3 object rhel-ami-importc9eda16cfb6c47b6999a97743102cbed:89a83267-5178-44f6-b004-515ff5943577-disk.raw
+AMI registered: ami-0d74dbf7474a1b822
+Snapshot ID: snap-01714d960cd6fde44
 ```
 
-If you need more information or command options, please see the reference here: https://github.com/osbuild/bootc-image-builder?tab=readme-ov-file#amazon-machine-images-amis
+How does it look in the AWS Webconsole?
+
+![alt text](/images/ami-published-webconsole.png)
 
 
-## STREP X "Setup cloud-init"
+## STEP 6 "Now let's create the AWS environment for us"
 
-Add an individual homepage to every instance that will be deployed:
+For that you can use the cloudfront-template file "setup-aws-environment.yml".
+This will do the following:
+
+* A VPC, subnets, security group, and necessary routing components are set up.
+* Two EC2 instances are created and configured to serve a basic PHP page.
+* An Elastic Load Balancer distributes HTTP traffic to these instances to ensure high availability across different availability zones.
+* The PHP page is accessible through the ELB's public DNS name.
+
+
+To emphasize the cloud-init functionality once again, here is the current section from the cloudfront-template to adjust your RHEL Instance during creation - according to your preferences:
 
 ```bash
-#create an awe inspiring home page!
-RUN echo '<h1 style="text-align:center;">Welcome to image mode for RHEL</h1> <?php phpinfo(); ?>' >> /var/www/html/index.php
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          echo '<h1 style="text-align:center;">Welcome to image mode for RHEL</h1> <?php phpinfo(); ?>' > /var/www/html/index.php
 ```
+
+
+Please adjust the ImageId value according to your environment before the execution!
+If you work with a x86_64 architecture, you can also change our InstanceType to e.g. "t3.micro" if you like.
+
+```bash
+aws cloudformation create-stack --stack-name rhel-nginx-aws-stack \
+  --template-body file://setup-aws-environment.yml \
+  --parameters ParameterKey=ImageId,ParameterValue=ami-0d74dbf7474a1b822 \
+               ParameterKey=InstanceType,ParameterValue=t4g.micro
+```
+
+
+You can verify the stack creation process with
+
+```bash
+aws cloudformation describe-stacks --stack-name rhel-nginx-aws-stack
+
+```
+
+How does it look inthe AWS Webconsole again?
+
+![alt text](/images/stack-completed.png)
+
+
+Once the deployment is finished you can get the DNS-Name of your Loadbalancer via:
+
+```bash
+aws elbv2 describe-load-balancers --names rhel-nginx-aws-stack-ELB --query 'LoadBalancers[0].DNSName' --output text
+```
+
+Open your deployed website in your browser.
+
+
+
 
 
 ## Conclusion
