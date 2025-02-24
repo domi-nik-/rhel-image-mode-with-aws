@@ -307,7 +307,7 @@ Snapshot ID: snap-01714d960cd6fde44
 
 How does it look in the AWS Webconsole?
 
-![alt text](/images/ami-published-webconsole.png)
+![alt text](images/ami-published-webconsole.png)
 
 
 ## STEP 6 "Now let's create the AWS environment for us"
@@ -351,7 +351,7 @@ aws cloudformation describe-stacks --stack-name rhel-nginx-aws-stack
 
 How does it look inthe AWS Webconsole again?
 
-![alt text](/images/stack-completed.png)
+![alt text](images/stack-completed.png)
 
 
 Once the deployment is finished you can get the DNS-Name of your Loadbalancer via:
