@@ -380,6 +380,18 @@ Now let's check our created "index.php"-site via the cloud-init:
 
 ![alt text](images/index-php-not-working.png)
 
+As you can see the Headline is correct but the "php-info" is not shown correct.
+Seems like we have to install php for httpd, for that we change the Containerfile and add php like in the "Containerfile-php".
+
+Now we rebuild the image and push it to our quay registry again:
+
+```bash
+podman build -f Containerfile-php -t quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-aws:latest
+podman push quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-aws:latest
+```
+
+
+
 
 
 
