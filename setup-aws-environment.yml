@@ -145,6 +145,17 @@ Resources:
         Fn::Base64: |
           #!/bin/bash
           echo '<h1 style="text-align:center;">Welcome to image mode for RHEL</h1> <?php phpinfo(); ?>' > /var/www/html/index.php
+          mkdir /var/log/php-fpm
+          restorecon -r /var/log/php-fpm
+          useradd nginx
+          #To set the SELinux Contect right, bug is reported and should be fixed soon
+          useradd -m admin
+          echo 'admin:admin' | chpasswd
+          echo 'root:root' | chpasswd
+          #rh_subscription:
+          #  activation-key: example_key
+          #  org: 12345
+          # auto-attach: True
       Tags:
         - Key: Name
           Value: "EC2Instance1"
@@ -161,6 +172,17 @@ Resources:
         Fn::Base64: |
           #!/bin/bash
           echo '<h1 style="text-align:center;">Welcome to image mode for RHEL</h1> <?php phpinfo(); ?>' > /var/www/html/index.php
+          mkdir /var/log/php-fpm
+          restorecon -r /var/log/php-fpm
+          useradd nginx
+          #Seems like the new package scripts are not running, bug is reported and should be fixed soon
+          useradd -m admin
+          echo 'admin:admin' | chpasswd
+          echo 'root:root' | chpasswd
+          #rh_subscription:
+          #  activation-key: example_key
+          #  org: 12345
+          # auto-attach: True
       Tags:
         - Key: Name
           Value: "EC2Instance2"

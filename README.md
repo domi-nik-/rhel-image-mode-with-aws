@@ -341,11 +341,12 @@ To emphasize the cloud-init functionality once again, here is the current sectio
         Fn::Base64: |
           #!/bin/bash
           echo '<h1 style="text-align:center;">Welcome to image mode for RHEL</h1> <?php phpinfo(); ?>' > /var/www/html/index.php
+          [...]
 ```
 
 
 Please adjust the ImageId value according to your environment before the execution!
-If you work with a x86_64 architecture, you can also change our InstanceType to e.g. "t3.micro" if you like.
+If you work with an x86_64 architecture, you can also change our InstanceType to e.g. "t3.micro" if you like.
 
 ```bash
 aws cloudformation create-stack --stack-name rhel-httpd-aws-stack \
@@ -381,18 +382,20 @@ Now let's check our created "index.php"-site via the cloud-init:
 ![alt text](images/index-php-not-working.png)
 
 As you can see the Headline is correct but the "php-info" is not shown correct.
-Seems like we have to install php for httpd, for that we change the Containerfile and add php like in the "Containerfile-php".
+Seems like we have to install php for httpd, for that we change the Containerfile and add php like in the "Containerfile-php"-file.
 
-Now we rebuild the image and push it to our quay registry again:
+## STEP 7 "Day 2 Operations or let's fix PHP"
+
+We rebuild the image and push it to our quay registry again:
 
 ```bash
 podman build -f Containerfile-php -t quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-aws:latest
 podman push quay.io/$YOUR_QUAY_ACCOUNT_NAME/rhel-httpd-aws:latest
 ```
+And within 1 hour (that's the default value) the two running EC2 Instances will automatically upgrade to the latest image version.
+Please note that it is not necessary to reinstall the EC2 Instances, but that the instances update themselves automatically via the quay registration. This makes it particularly easy for “Day 2” operations.  
 
-
-
-
+![alt text](images/index-php-working.png)
 
 
 
