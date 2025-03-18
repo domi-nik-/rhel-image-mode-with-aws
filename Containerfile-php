@@ -1,0 +1,7 @@
+FROM registry.redhat.io/rhel9/rhel-bootc:9.5
+
+#install the missing php components
+RUN dnf module enable -y php:8.2 && dnf install -y httpd cloud-init php-fpm && dnf clean all
+
+#start the services automatically on boot
+RUN systemctl enable httpd php-fpm
