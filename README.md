@@ -29,7 +29,6 @@ Running a Website on a RHEL Systems behind a Loadbalancer (ELB) on AWS.
 * “podman” for image creation, testing and pushing the generated AMIs  
 * “cloud-init” for adjust systems during deployment of the AMIs
 
-
 ## STEP 1 "Create github repo"
 
 Create a github repo on github.com named "rhel-image-mode-with-aws".
@@ -39,6 +38,7 @@ cd $USERHOME #Change to $HOME
 git clone git@github.com:$YOURGITHUBUSER/rhel-image-mode-with-aws.git
 cd rhel-image-mode-with-aws #Change into our working directory
 ```
+
 
 ## STEP 2 "Create your Containerfile for the RHEL Image"
 
@@ -396,7 +396,6 @@ And within 1 hour (that's the default value) the two running EC2 Instances will 
 Please note that it is not necessary to reinstall the EC2 Instances, but that the instances update themselves automatically via the quay registration. This makes it particularly easy for “Day 2” operations.  
 
 ![alt text](images/index-php-working.png)
-
 
 
 ## Conclusion
