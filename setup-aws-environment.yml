@@ -148,7 +148,7 @@ Resources:
           mkdir /var/log/php-fpm
           restorecon -r /var/log/php-fpm
           useradd nginx
-          #To set the SELinux Contect right, bug is reported and should be fixed soon
+          #To set the SELinux Content right and create missing directories, see https:// containers bootc-dev .github.io/bootc/filesystem.html#var
           useradd -m admin
           echo 'admin:admin' | chpasswd
           echo 'root:root' | chpasswd
@@ -175,7 +175,7 @@ Resources:
           mkdir /var/log/php-fpm
           restorecon -r /var/log/php-fpm
           useradd nginx
-          #Seems like the new package scripts are not running, bug is reported and should be fixed soon
+          #To set the SELinux Content right and create missing directories, see https:// containers bootc-dev .github.io/bootc/filesystem.html#var
           useradd -m admin
           echo 'admin:admin' | chpasswd
           echo 'root:root' | chpasswd
